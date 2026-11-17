@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"strings"
@@ -43,13 +44,16 @@ func main() {
 			fmt.Println("Some error occured: ", err)
 			return
 		}
+
+		buffer := make([]byte, 1024)
+
+		n, err := conn.Read(buffer)
+
+		if err != nil {
+			log.Fatal(err)
+			return
+		}
+
+		fmt.Println("Server Response: ", string(buffer[:n]))
 	}
-
-	// data := []byte("Hello, This is a test message from first client")
-	// _, err = conn.Write(data)
-
-	// if err != nil {
-	// 	fmt.Println("Some error occured:", err)
-	// 	return
-	// }
 }
