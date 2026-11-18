@@ -29,7 +29,7 @@ func main() {
 
 	for {
 		reader := bufio.NewReader(os.Stdin)
-		fmt.Print("Enter the message: ")
+		fmt.Print("> ")
 		clientInput, _ = reader.ReadString('\n')
 		clientInput = strings.TrimSpace(clientInput)
 
@@ -54,6 +54,6 @@ func main() {
 			return
 		}
 
-		fmt.Println("Server Response: ", string(buffer[:n]))
+		fmt.Println("Mr-Mute -> ", string(buffer[:n]))
 	}
 }

@@ -2,17 +2,19 @@ package main
 
 import (
 	"fmt"
-	"log"
-	"mrmute/cmd/roomkey"
 	"net"
+	"sync"
 	"time"
+
+	"mrmute/cmd/clientId"
+	"mrmute/cmd/roomkey"
 )
 
 type Client struct {
 	ID       string
 	username string
 	role     string
-	conn     net.Conn
+	Conn     net.Conn
 }
 
 type Room struct {
@@ -24,12 +26,12 @@ type Room struct {
 }
 
 type Server struct {
-	Rooms map[string]*Room
+	Rooms   map[string]*Room
+	Clients map[string]*Client
+	mu      sync.RWMutex
 }
 
 func main() {
-	fmt.Println("This is server !")
-
 	listner, err := net.Listen("tcp", "localhost:8080")
 
 	if err != nil {
@@ -39,7 +41,12 @@ func main() {
 
 	defer listner.Close()
 
-	fmt.Println("Server is listening on port 8080 !")
+	server := &Server{
+		Rooms:   make(map[string]*Room),
+		Clients: make(map[string]*Client),
+	}
+
+	fmt.Println("Server is online on port 8080 !")
 
 	for {
 		conn, err := listner.Accept()
@@ -49,12 +56,32 @@ func main() {
 			return
 		}
 
-		go handleClient(conn)
+		go server.handleClient(conn)
 	}
 }
 
-func handleClient(conn net.Conn) {
+func (server *Server) handleClient(conn net.Conn) {
+
+	clientId, err := clientid.ClientID()
+
+	if err != nil {
+		fmt.Printf("Error occured: %s", err)
+		return
+	}
+
+	client := &Client{
+		ID:   clientId,
+		Conn: conn,
+	}
+
+	server.mu.Lock()
+	server.Clients[clientId] = client
+	server.mu.Unlock()
+
+	defer server.removeClient(clientId)
 	defer conn.Close()
+
+	fmt.Printf("Client connected: %s", clientId)
 
 	buffer := make([]byte, 1024)
 	for {
@@ -67,20 +94,70 @@ func handleClient(conn net.Conn) {
 
 		fmt.Printf("Received: %s\n:", string(buffer[:n]))
 
-		if string(buffer[:n]) == "key" {
+		clientResponse := string(buffer[:n])
+
+		switch clientResponse {
+		case "exit":
+			_, err = conn.Write([]byte("Exiting..."))
+
+			if err != nil {
+				fmt.Println("Some error occured...")
+				return
+			}
+			return
+
+		case "key":
 			key, err := roomkey.GenerateRoomKey()
 
 			if err != nil {
-				fmt.Println("Error occured while generating the room key !")
+				fmt.Printf("Some error occured while generating the room key")
+				return
 			}
 
 			responseKey := []byte(key)
 			_, err = conn.Write(responseKey)
 
 			if err != nil {
-				log.Fatal(err)
+				fmt.Printf("Error occured: %s", err)
 				return
 			}
+
+			fmt.Printf("Responded with key: %s\n", key)
+			continue
+
+		default:
+			_, err = conn.Write([]byte(clientResponse))
+
+			if err != nil {
+				fmt.Printf("Error occured: %s", err)
+				return
+			}
+
+			continue
 		}
 	}
+}
+
+func (server *Server) removeClient(id string) {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+
+	if _, ok := server.Clients[id]; !ok {
+		return
+	}
+	delete(server.Clients, id)
+
+	for roomID, room := range server.Rooms {
+		delete(room.Participants, id)
+
+		if room.Host != nil && room.Host.ID == id {
+			room.Host = nil
+		}
+
+		if len(room.Participants) == 0 && room.Host == nil {
+			delete(server.Rooms, roomID)
+		}
+	}
+
+	fmt.Printf("Client disconnected: %s\n", id)
 }
